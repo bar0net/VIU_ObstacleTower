@@ -133,7 +133,7 @@ class DQN_Agent(Agent):
         states, actions, rewards, next_states, dones = self.buffer.sample()
         
         states      = torch.from_numpy(states).float().to(self.device)
-        actions     = torch.from_numpy(actions).long().to(self.device)
+        actions     = torch.from_numpy(actions + [[0,3,6,8]]).long().to(self.device)
         rewards     = torch.from_numpy(rewards).float().to(self.device)
         next_states = torch.from_numpy(next_states).float().to(self.device)
         dones       = torch.from_numpy(dones).float().to(self.device)
@@ -145,7 +145,7 @@ class DQN_Agent(Agent):
                  Q_targets_seg[:,6:8].max(1)[0].unsqueeze(1), 
                  Q_targets_seg[:,8:].max(1)[0].unsqueeze(1)),1)
         Q_targets  = rewards + (self.gamma * Q_targets_next * (1-dones))
-        Q_expected = self.local(states).gather(1,actions + [0,3,6,8])
+        Q_expected = self.local(states).gather(1,actions)
         
         loss = F.mse_loss(Q_expected, Q_targets)
         
