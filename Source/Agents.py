@@ -101,15 +101,16 @@ class DQN_Agent(Agent):
     def act(self, state):
         # Epsilon-greedy Policy
         if random.random() < self.epsilon:
-            return [random.randint(0,2), random.randint(0,2), random.randint(0,1), random.randint(0,2)]
+            return [[random.randint(0,2), random.randint(0,2), random.randint(0,1), random.randint(0,2)]]
         
-        torch_state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
+        torch_state = torch.from_numpy(state).float().to(self.device)
         self.local.eval()
         with torch.no_grad():
             action_values = self.local(torch_state)
         self.local.train()
         
-        return [np.argmax(x.numpy()) for x in action_values]
+        actions = action_values.cpu().numpy()
+        return [[np.argmax(action[:3]), np.argmax(action[3:6]), np.argmax(action[6:8]), np.argmax(action[8:])] for action in actions]
     
     def save(self, prefix="", suffix=""):
         if not os.path.exists("./Saved Models"):
@@ -137,9 +138,14 @@ class DQN_Agent(Agent):
         next_states = torch.from_numpy(next_states).float().to(self.device)
         dones       = torch.from_numpy(dones).float().to(self.device)
         
-        Q_targets_next = self.target(next_states) #.detach().max(1)[0].unsqueeze(1)
+        Q_targets_seg = self.target(next_states).detach()#.max(1)[0].unsqueeze(1)
+        Q_targets_next = torch.cat( 
+                (Q_targets_seg[:,:3].max(1)[0].unsqueeze(1), 
+                 Q_targets_seg[:,3:6].max(1)[0].unsqueeze(1), 
+                 Q_targets_seg[:,6:8].max(1)[0].unsqueeze(1), 
+                 Q_targets_seg[:,8:].max(1)[0].unsqueeze(1)),1)
         Q_targets  = rewards + (self.gamma * Q_targets_next * (1-dones))
-        Q_expected = self.local(states).gather(1,actions)
+        Q_expected = self.local(states).gather(1,actions + [0,3,6,8])
         
         loss = F.mse_loss(Q_expected, Q_targets)
         

@@ -34,7 +34,8 @@ class Buffer:
         experiences = random.sample(self.memory, k=self.batch_size)
 
         states =      np.vstack([e.state        for e in experiences if e is not None])
-        actions =     np.vstack([Buffer.Action2OneShoot(e.action) for e in experiences if e is not None])
+        #actions =     np.vstack([Buffer.Action2OneShoot(e.action) for e in experiences if e is not None])
+        actions =     np.vstack([e.action       for e in experiences if e is not None])
         rewards =     np.vstack([e.reward       for e in experiences if e is not None])
         next_states = np.vstack([e.next_state   for e in experiences if e is not None])
         dones =       np.vstack([e.done         for e in experiences if e is not None])
