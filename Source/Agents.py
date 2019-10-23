@@ -2,23 +2,25 @@
 """
 @author: Jordi Tudela Alcacer
 """
-import numpy as np
-import random
 import os
+import random
+import datetime
+import numpy as np
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from Source.Models import DQN_Model
+from Source.Utils  import ModelSelect
 from Source.Buffer import Buffer
 
 # ============================================================================
 # BASE AGENT CLASS
 # ============================================================================
 class Agent(ABC):
-    def __init__(self, state_size, action_size, buffer = None, n_iter = 1, seed = 0, device = 'cpu'):
+    def __init__(self, state_size, action_size, agent_type, buffer = None, n_iter = 1, seed = 0, device = 'cpu'):
         if not isinstance(buffer, Buffer):
             TypeError("Incorrect type for buffer")
         
@@ -31,12 +33,16 @@ class Agent(ABC):
         self.n_iter = int(n_iter)
         self.seed = random.seed(seed)
         self.device = device
+        
+        self.type = agent_type
+        now = datetime.datetime.now()
+        self.date = "{}{}{}".format(now.year,now.month,now.day)
     
     def step_begin(self):
         pass
     
     def step_update(self):
-        if self.buffer.active():
+        if self.buffer != None and self.buffer.active():
             for _ in range(self.n_iter):
                 self._learn()
     
@@ -44,7 +50,7 @@ class Agent(ABC):
         pass
     
     @abstractmethod
-    def act(self, state):
+    def act(self, state, train=True):
         pass
     
     def reset(self):
@@ -53,6 +59,18 @@ class Agent(ABC):
     @abstractmethod
     def save(self, prefix="", suffix=""):
         pass
+    
+    @abstractmethod
+    def load_weights(self, prefix="", suffix=""):
+        pass
+    
+    def get_folder(self, prefix="", suffix=""):
+        folder = self.type + "-" + self.date
+        if prefix != "":
+            folder = prefix + "_" + folder
+        if suffix != "":
+            folder += "_" + suffix
+        return folder
     
     @abstractmethod
     def _learn(self):
@@ -74,34 +92,66 @@ class Agent(ABC):
         """
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+            
+
+# ==========================================
+#                  Random
+# ==========================================          
+class Random_Agent(Agent):
+    def __init__(self, state_size, action_size, seed = 0, device = 'cpu'):
+        super().__init__(state_size, action_size, "Random", None, 0, seed, device)
+        
+    def act(self, state, train=True):
+        # Epsilon-greedy Policy
+        output = [0]*self.action_size
+        output[random.randint(0,self.action_size-1)] = 1
+        return [output]  
+    
+    def _learn(self):
+        pass
+    
+    def save(self, prefix="", suffix=""):
+        pass
+    
+    def load_weights(self, prefix="", suffix=""):
+        pass
     
 # ==========================================
 #                  DQN
 # ==========================================
             
-class DQN_Agent(Agent):
-    def __init__(self, state_size, action_size, gamma = 0.99, tau = 1e-3, epsilon_start = 1.0,
+class DoubleDQN_Agent(Agent):
+    def __init__(self, state_size, action_size, buffer, model_name="DQN_1", gamma = 0.99, tau = 1e-3, epsilon_start = 1.0,
                  epsilon_end = 1e-3, epsilon_steps = 1000, learning_rate = 1e-3, 
-                 buffer = None, n_iter = 1, seed = 0, device = 'cpu'):
-        super().__init__(state_size, action_size, buffer, n_iter, seed, device)
+                 n_iter = 1, seed = 0, device = 'cpu'):
+        super().__init__(state_size, action_size, "DoubleDQN", buffer, n_iter, seed, device)
         
         self.gamma = gamma
         self.tau   = tau
-        self.epsilon = epsilon_start
+        self.epsilon = defaultdict(lambda:epsilon_start)
         self.epsilon_decay = (epsilon_start - epsilon_end) / epsilon_steps
         self.epsilon_end = epsilon_end
         
-        self.local  = DQN_Model(state_size, action_size, seed, device)
-        self.target = DQN_Model(state_size, action_size, seed, device)
+        self.local  = ModelSelect(model_name)(state_size, action_size, seed=seed, device=device).to(device)
+        self.target = ModelSelect(model_name)(state_size, action_size, seed=seed, device=device).to(device)
         self.optim  = optim.Adam(self.local.parameters(), lr=learning_rate)
+        self.current_level = 0
+        
+    def step_begin(self):
+        self.current_level = 0
         
     def step_end(self):
-        self.epsilon = max(self.epsilon-self.epsilon_decay, self.epsilon_end)
+        for key, value in self.epsilon.items():
+            if key > self.current_level:
+                break
+            self.epsilon[key] = max(self.epsilon[key]-self.epsilon_decay, self.epsilon_end)
     
-    def act(self, state):
+    def act(self, state, train=True):
         # Epsilon-greedy Policy
-        if random.random() < self.epsilon:
-            return [[random.randint(0,2), random.randint(0,2), random.randint(0,1), random.randint(0,2)]]
+        output = [0]*self.action_size
+        if train and random.random() < self.epsilon[self.current_level]:
+            output[random.randint(0,self.action_size-1)] = 1
+            return [output]
         
         torch_state = torch.from_numpy(state).float().to(self.device)
         self.local.eval()
@@ -109,18 +159,15 @@ class DQN_Agent(Agent):
             action_values = self.local(torch_state)
         self.local.train()
         
-        actions = action_values.cpu().numpy()
-        return [[np.argmax(action[:3]), np.argmax(action[3:6]), np.argmax(action[6:8]), np.argmax(action[8:])] for action in actions]
+        action = np.argmax(action_values.cpu().numpy())
+        output[action] = 1
+        return [output]
     
     def save(self, prefix="", suffix=""):
         if not os.path.exists("./Saved Models"):
             os.mkdir("./Saved Models")
             
-        folder = "DQN"
-        if prefix != "":
-            folder = prefix + "_" + folder
-        if suffix != "":
-            folder += "_" + suffix
+        folder = self.get_folder(prefix=prefix, suffix=suffix)
             
         if not os.path.exists("./Saved Models/{}".format(folder)):
             os.mkdir("./Saved Models/{}".format(folder))
@@ -128,24 +175,25 @@ class DQN_Agent(Agent):
         torch.save(self.local.state_dict(), "./Saved Models/{}/local.pth".format(folder))
         torch.save(self.target.state_dict(), "./Saved Models/{}/target.pth".format(folder))
         
+    def load_weights(self, prefix="", suffix=""):
+        folder = self.get_folder(prefix=prefix, suffix=suffix)
+        if os.path.exists("./Saved Models/{}/level_scores.txt".format(folder)):
+            print("Reloading existing model")
+            self.local.load_state_dict(torch.load("./Saved Models/{}/local.pth".format(folder)))
+            self.target.load_state_dict(torch.load("./Saved Models/{}/local.pth".format(folder)))
     
     def _learn(self):
         states, actions, rewards, next_states, dones = self.buffer.sample()
         
         states      = torch.from_numpy(states).float().to(self.device)
-        actions     = torch.from_numpy(actions + [[0,3,6,8]]).long().to(self.device)
+        actions     = torch.from_numpy(actions).long().to(self.device)
         rewards     = torch.from_numpy(rewards).float().to(self.device)
         next_states = torch.from_numpy(next_states).float().to(self.device)
         dones       = torch.from_numpy(dones).float().to(self.device)
         
-        Q_targets_seg = self.target(next_states).detach()#.max(1)[0].unsqueeze(1)
-        Q_targets_next = torch.cat( 
-                (Q_targets_seg[:,:3].max(1)[0].unsqueeze(1), 
-                 Q_targets_seg[:,3:6].max(1)[0].unsqueeze(1), 
-                 Q_targets_seg[:,6:8].max(1)[0].unsqueeze(1), 
-                 Q_targets_seg[:,8:].max(1)[0].unsqueeze(1)),1)
+        Q_targets_next = self.target(next_states).detach().max(1)[0].unsqueeze(1)
         Q_targets  = rewards + (self.gamma * Q_targets_next * (1-dones))
-        Q_expected = self.local(states).gather(1,actions)
+        Q_expected = self.local(states).gather(1,actions)[:,0].unsqueeze(1)
         
         loss = F.mse_loss(Q_expected, Q_targets)
         

@@ -44,4 +44,40 @@ class Buffer:
     
     def active(self):
         return len(self.memory) >= self.batch_size
+    
+    def update(self):
+        pass
+        
+    
+class SortedBuffer(Buffer):
+    def __init__(self, buffer_size, batch_size, seed = 0):
+        self.batch_size = batch_size
+        self.memory = []
+        self.experience = namedtuple("experience", field_names = ["state", "action", "reward", "next_state", "done"])
+        self.seed = random.seed(seed)
+        self.buffer_size = buffer_size
+        
+    def add(self, state, action, reward, next_state, done):
+        item = self.experience(state, action, reward, next_state, float(done))
+        self.memory.append(item)
+        
+        if len(self.memory) > self.buffer_size:
+            self.memory.pop(0)
+            
+    def update(self):
+        mean = sum( map(lambda x: x.reward, self.memory) )
+        
+        # We want lower std dev values at the front so we can
+        # pop front and append to back (it's convenient!)
+        self.memory = sorted(self.memory, reverse=True, key=lambda x: abs(mean-x.reward) + 0.00001 * random.random())
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         
