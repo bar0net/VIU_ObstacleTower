@@ -102,10 +102,27 @@ class Random_Agent(Agent):
         super().__init__(state_size, action_size, "Random", None, 0, seed, device)
         
     def act(self, state, train=True):
-        # Epsilon-greedy Policy
         output = [0]*self.action_size
         output[random.randint(0,self.action_size-1)] = 1
         return [output]  
+    
+    def _learn(self):
+        pass
+    
+    def save(self, prefix="", suffix=""):
+        pass
+    
+    def load_weights(self, prefix="", suffix=""):
+        pass
+    
+        
+class SingleAction_Agent(Agent):
+    def __init__(self, state_size, action_size, action, seed = 0, device = 'cpu'):
+        super().__init__(state_size, action_size, "Random", None, 0, seed, device)
+        self.action = action
+        
+    def act(self, state, train=True):
+        return self.action
     
     def _learn(self):
         pass

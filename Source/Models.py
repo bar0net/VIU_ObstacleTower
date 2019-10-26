@@ -113,7 +113,57 @@ class DQN_Model_3(nn.Module):
     def forward(self, state):
         return self.model(state)  
     
-    
+
+
+class DDQN_Model_1(nn.Module):
+    def __init__(self, state_size, action_size, input_channels=3, seed = 0, device='cpu'):
+        super(DDQN_Model_1,self).__init__()
+        self.seed = torch.manual_seed(seed)
+        self.device = device
+        
+        conv_out = [(state_size[0] - 8) / 4, (state_size[1] - 8) / 4]
+        conv_out = [(conv_out[0]   - 4) / 2, (conv_out[1]   - 4) / 2]
+        conv_out = [(conv_out[0]   - 2) / 2, (conv_out[1]   - 2) / 2]
+        conv_out = [(conv_out[0]   - 2),     (conv_out[1]   - 2)]
+        
+        # Model Layers
+        self.conv_model = nn.Sequential(
+                nn.Conv2d(in_channels=input_channels, out_channels=32, kernel_size=9, stride=4), # 168x168 -> 40x40
+                nn.ReLU(),
+                nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5, stride=2), # 40x40 -> 18x18
+                nn.ReLU(),
+                nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=2), # 18x18 -> 8x8
+                nn.ReLU(),
+                nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=1), # 8x8 -> 6x6
+                nn.ReLU(),
+                Flatten()
+                )
+        
+        self.state_head = nn.Sequential(
+                nn.Linear(32*conv_out[0]*conv_out[1], 128),
+                nn.ReLU(),
+                nn.Linear(128,action_size),
+                nn.ReLU()
+                )
+        
+        self.action_head = nn.Sequential(
+                nn.Linear(32*conv_out[0]*conv_out[1], 128),
+                nn.ReLU(),
+                nn.Linear(128,action_size),
+                nn.ReLU()
+                )
+        
+        self.out_layer = nn.Linear(action_size, action_size)
+        
+    def forward(self, state):
+        
+        x = self.conv_model(state)
+        v = self.state_head(x)
+        a = self.action_head(x)
+
+        x = v + (a - torch.mean(a, dim=0))
+                
+        return self.out_layer(x)
     
     
     

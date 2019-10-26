@@ -12,7 +12,8 @@ import Source.Models
 __model_hash = {
         "DQN_1": Source.Models.DQN_Model_1,
         "DQN_2": Source.Models.DQN_Model_2,
-        "DQN_3": Source.Models.DQN_Model_3
+        "DQN_3": Source.Models.DQN_Model_3,
+        "DDQN_1": Source.Models.DDQN_Model_1
         }
 
 def ModelSelect(model_name):
@@ -71,6 +72,9 @@ class Tracker:
         if os.path.exists("./Saved Models/{}/level_scores.txt".format(folder)):
             self.levels = np.loadtxt("./Saved Models/{}/level_scores.txt".format(folder), delimiter=",").tolist()
             self.rewards.clear()
+            
+        if type(self.levels) == float:
+            self.levels = [self.levels]
             
     def add(self, reward, level):
         self.rewards.append(reward)
