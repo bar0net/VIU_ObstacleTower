@@ -13,7 +13,10 @@ __model_hash = {
         "DQN_1": Source.Models.DQN_Model_1,
         "DQN_2": Source.Models.DQN_Model_2,
         "DQN_3": Source.Models.DQN_Model_3,
-        "DDQN_1": Source.Models.DDQN_Model_1
+        "DDQN_1": Source.Models.DDQN_Model_1,
+        "Noisy_DDQN_1": Source.Models.Noisy_DDQN_Model_1,
+        "PPO": Source.Models.Actor_Critic_Model,
+        "DistDQN": Source.Models.Distributional_DDQN_Model_1
         }
 
 def ModelSelect(model_name):

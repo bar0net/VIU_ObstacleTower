@@ -212,10 +212,136 @@ class DoubleDQN_Agent(Agent):
         Q_targets  = rewards + (self.gamma * Q_targets_next * (1-dones))
         Q_expected = self.local(states).gather(1,actions)[:,0].unsqueeze(1)
         
-        loss = F.mse_loss(Q_expected, Q_targets)
+        error = (Q_expected - Q_targets).pow(2)
+        loss = error.mean()
         
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
         Agent.soft_update(self.local, self.target, self.tau)
+        
+        self.buffer.learn_update(values=error.squeeze().cpu().data.numpy(), debug=True)
+        
+        
+        
+class DistDDQN_Agent(DoubleDQN_Agent):
+        def act(self, state, train=True):
+        # Epsilon-greedy Policy
+        output = [0]*self.action_size
+        if train and random.random() < self.epsilon[self.current_level]:
+            output[random.randint(0,self.action_size-1)] = 1
+            return [output]
+        
+        torch_state = torch.from_numpy(state).float().to(self.device)
+        self.local.eval()
+        with torch.no_grad():
+            action_values = self.local(torch_state)
+            value = (action_values * self.local.support).sum(2)
+            output = value.max(1)[1].item()
+        self.local.train()
+        
+        return [output.cpu().numpy()]
+# ==========================================
+#                  PPO
+# ==========================================
+class PPO_Agent(Agent):
+    def __init__(self, state_size, action_size, model_name, gradient_steps = 16, batch_size = 64, 
+                 initial_discount = 0.995, epsilon=0.1,  learning_rate = 1e-4, n_iter = 1, seed = 0, device = 'cpu'):
+        
+        super().__init__(state_size, action_size, "PPO", None, n_iter, seed, device)
+        
+        self.steps = gradient_steps
+        self.discount = initial_discount
+        self.batch_size = batch_size
+        self.epsilon = epsilon
+        
+        self.model = ModelSelect(model_name)(state_size, action_size, seed=seed, device=device).to(device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        
+    def step_end(self, probs, states, actions,  returns, advantages, train=True): 
+        if train:
+            for _ in range(self.steps):
+                mini_probs, mini_states, mini_actions, mini_returns, mini_advantages = self._get_minibatch(probs, states, actions, returns, advantages)        
+                target = self._clip(mini_probs, mini_states, mini_actions, mini_returns, mini_advantages)
+                
+                self.optimizer.zero_grad()
+                target.backward()
+                self.optimizer.step()
+                del target
+        
+    def act(self, state, train=True):
+        torch_state = torch.from_numpy(state).float().to(self.device)
+        return self.model(torch_state)
+    
+    def save(self, prefix="", suffix=""):
+        if not os.path.exists("./Saved Models"):
+            os.mkdir("./Saved Models")
             
+        folder = self.get_folder(prefix=prefix, suffix=suffix)
+            
+        if not os.path.exists("./Saved Models/{}".format(folder)):
+            os.mkdir("./Saved Models/{}".format(folder))
+            
+        torch.save(self.model.state_dict(), "./Saved Models/{}/model.pth".format(folder))
+        
+    def load_weights(self, prefix="", suffix=""):
+        folder = self.get_folder(prefix=prefix, suffix=suffix)
+        if os.path.exists("./Saved Models/{}/level_scores.txt".format(folder)):
+            print("Reloading existing model")
+            self.model.load_state_dict(torch.load("./Saved Models/{}/model.pth".format(folder)))
+            
+    def _learn(self):
+        return
+            
+    def _get_minibatch(self, probs, states, actions, rewards, values):        
+        idx = np.random.randint(0, states.shape[0], self.batch_size)
+        return probs[idx,:], states[idx,:], actions[idx,:], rewards[idx,:], values[idx,:]
+       
+    def _clip(self, probs, states, actions, returns, advantages):       
+        actions     = torch.tensor(actions, dtype=torch.float, device=self.device)
+        returns     = torch.tensor(returns, dtype=torch.float, device=self.device)
+        probs       = torch.tensor(probs, dtype=torch.float, device=self.device)
+        states      = torch.tensor(states, dtype=torch.float, device=self.device)
+        advantages  = torch.tensor(advantages, dtype=torch.float, device=self.device)
+        
+        dist, value = self.model(states)
+        entropy = dist.entropy().mean()
+        new_probs = dist.log_prob(actions)
+        
+        ratio = (new_probs - probs).exp()
+        
+        old_rewards = advantages * ratio
+        clipped_ratio   = torch.clamp(ratio, 1-self.epsilon, 1+self.epsilon) * advantages
+        
+        actor_loss  = torch.min(old_rewards, clipped_ratio).mean()
+        critic_loss =  (returns-value).pow(2).mean()
+        
+        return actor_loss + 0.5 * critic_loss - 0.001 * entropy
+    
+    @staticmethod
+    def normalize_rewards(next_value, values, rewards, masks, gamma=0.99, tau=0.95):
+        values = np.vstack( (values, next_value) )
+        x, returns = 0, []
+        N = len(rewards)
+        
+        for i in reversed(range(N)):
+            if (rewards[i] > 0):
+                x = rewards[i] - values[i]
+            else:
+                delta = rewards[i] + gamma * values[i+1] * masks[i] - values[i]
+                x = delta + gamma * tau * masks[i] * x
+            returns.insert(0, x + values[i])
+        return returns
+        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
